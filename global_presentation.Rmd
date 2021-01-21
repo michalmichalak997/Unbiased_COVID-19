@@ -1,0 +1,393 @@
+---
+title: "Global_presentation"
+author: "Michał Michalak"
+date: "21 01 2021"
+output: ''
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(reshape2)
+library(tibble)
+library(sf)
+library(tmap)
+library(broom)
+library(plotly)
+library(magrittr)
+```
+
+
+
+
+#1. Read the input file
+
+```{r}
+world<-read.csv("world.csv", sep=";", dec=".", header = TRUE, check.names = FALSE)
+```
+
+#2. Assure that data on both infection and tests is supplied and that the number of tests is greater than that of infections
+
+```{r}
+world <-dplyr::filter(world, !is.na(total_tests) & !is.na(total_cases) & total_tests>total_cases )
+```
+
+```{r}
+world <-dplyr::filter(world, 
+                        #Asia peaks
+                        date!='2020-06-24' & date!= '2020-08-06' &
+                        
+                        #Europe peaks
+                        date!='2020-08-04' & date!= '2020-08-21' & date!= '2020-10-02' &
+                        date!= '2020-07-04'& date!= '2020-12-02' & date!= '2020-12-14' &
+                        date!= '2020-03-30' & date!= '2020-03-19'& date!= '2020-04-01' &
+                        date!= '2020-03-27' & date!= '2020-03-18'& date!= '2020-04-12' &
+                        
+                        #Africa peaks
+                        date!= '2020-04-07'&
+                        date!= '2020-12-01'& 
+                        
+                        #North America peaks
+                        date!= '2020-12-21' &
+                        
+                        #Oceania peaks
+                        date!= '2020-08-22'& date!= '2020-08-28' & date!= '2020-08-29'&
+                        date!= '2020-09-04'& date!= '2020-09-05' & date!= '2020-09-11'&
+                        date!= '2020-09-12'& date!= '2020-09-18' & date!= '2020-09-19'&
+                        date!= '2020-09-25'& date!= '2020-09-26' & date!= '2020-09-19'&
+                        date!= '2020-10-03'& date!= '2020-10-04' & date!= '2020-10-05'&
+                        date!= '2020-10-09'& date!= '2020-10-10' & date!= '2020-10-16'&
+                        date!= '2020-10-17'& date!= '2020-10-23' & date!= '2020-10-24'&
+                        date!= '2020-10-30'& date!= '2020-11-06' & date!= '2020-11-13'&
+                        date!= '2020-11-14'& date!= '2020-11-20' & date!= '2020-11-21'&
+                        date!= '2020-11-27'& date!= '2020-11-28' & date!= '2020-12-04'&
+                        date!= '2020-12-11'& date!= '2020-07-28' & date!= '2020-07-31'&
+                        date!= '2020-10-31'& date!= '2020-07-11' & date!= '2020-12-05'&
+                        date!= '2020-12-18'& date!= '2020-03-22' & date!= '2020-03-29' &
+                        date!= '2020-12-19'& date!= '2020-12-24' & date!= '2020-12-26' &
+                      
+                        #South America peaks
+                        date!= '2020-04-20'& date!= '2020-05-29' & date!= '2020-06-30' &
+                        date!= '2020-07-21'& date!= '2020-07-25' & date!= '2020-08-02' &
+                        date!= '2020-08-08'& date!= '2020-08-15' & date!= '2020-08-31' &
+                        date!= '2020-06-02'& date!= '2020-06-07' & date!= '2020-06-11' &
+                        date!= '2020-06-14'& date!= '2020-06-15' & date!= '2020-06-16' &
+                        date!= '2020-06-17'& date!= '2020-06-18' & date!= '2020-06-21'
+                        )
+```
+
+
+
+
+
+
+
+#3. Select countries from Europe
+#world <-dplyr::filter(world, continent=='Europe')
+
+#4. Calculate local positivity
+
+```{r}
+world$LPR<-world$total_cases/world$total_tests`
+
+```
+
+#5. Subset the data frame with needed columns
+
+```{r}
+world <-dplyr::select(world, c("continent", "location", "date", "total_tests", "total_cases", "LPR", "population") )
+```
+
+
+
+#6. Sort the data frame by date rather than by countries
+
+```{r}
+world<- world[order(world$date),]
+```
+
+
+
+#7. Determine the time period
+
+```{r}
+date_range<-unique(world$date)
+```
+
+
+
+#8. Prepare empty vectors for global positivity, number of countries 
+#for which data are available for each individual day, and
+#global ratios needed for calculating the expected number of cases and tests
+
+```{r}
+global_ratio <- c()
+number_countries <- c()
+
+r_cases <- c()
+r_tests <- c()
+```
+
+```{r}
+for (k in date_range){ #for each date
+  date_index <- which(world$date==k) #get row indices
+  number_countries[k] <- length(date_index) #get number of countries 
+  global_ratio[k] <- sum(  world$total_cases[date_index]    )/ sum(  world$total_tests[date_index]    ) #calculate global positivity
+  r_cases[k] <-  sum(  world$total_cases[date_index]    )/sum(  world$population[date_index]    ) #calculate ratio for calculating the expected number of tests
+  r_tests[k] <-  sum(  world$total_tests[date_index]    )/sum(  world$population[date_index]    ) #calculate ratio for calculating the expected number of cases
+}
+```
+
+
+
+
+#9. Replicate global positivity with respect to the number of countries with a given date
+
+```{r}
+global_positivity <- rep(global_ratio, number_countries)
+```
+
+
+
+#10. Replicate ratios to calculated expected number of cases and tests with respect to the number of countries with a given date
+
+```{r}
+r_cases <- rep (r_cases, number_countries )
+```
+
+```{r}
+r_tests <- rep (r_tests, number_countries )
+```
+
+
+
+
+#11. Assign global positivity as a new column of the data frame
+
+```{r}
+world$GPR <- global_positivity
+```
+
+
+
+#12. Assign WCSIR as a new column of the data frame
+
+```{r}
+
+world$WCSIR <-world$LPR/world$GPR
+```
+
+
+#13. Assign global ratio for calculating the expected number of cases as a new column of the data frame
+
+```{r}
+world$r_cases <- r_cases
+```
+
+
+
+
+#14. Assign global ratio for calculating the expected number of tests as a new column of the data frame
+
+```{r}
+world$r_tests <- r_tests
+```
+
+
+
+#15. Assign  expected number of cases as a new column of the data frame
+
+```{r}
+world$expected_cases <- world$r_cases*world$population
+```
+
+
+
+#16. Assign  expected number of tests as a new column of the data frame
+
+
+```{r}
+world$expected_tests <- world$r_tests*world$population
+```
+
+
+
+#17. Assign CSIR as a new column of the data frame
+```{r}
+world$CSIR <- world$total_cases/world$expected_cases
+```
+
+
+
+
+#18. Assign CSTR as a new column of the data frame
+```{r}
+world$CSTR <- world$total_tests/world$expected_tests
+```
+
+
+#19. Generate the plot of CSTR
+
+
+```{r}
+world$date <- as.Date(world$date)
+
+```
+
+```{r}
+CSTR_plot <- ggplot(data=world[483:nrow(world),], aes(
+  x=date,
+  y=CSTR,
+  group = location,
+  colour = location
+)
+)+
+  geom_line(size=0.5) +
+  geom_point( size=1, shape=21, fill="white")+
+  scale_x_date(labels = scales::date_format("%m-%Y"))+
+  theme(axis.text.x=element_text(angle = -90, hjust = 0), legend.position = "none")
+```
+
+```{r}
+CSTR_plot_inverse<- ggplot(data=world[483:nrow(world),], aes(
+  x=date,
+  y=1/CSTR,
+  group = location,
+  colour = location
+)
+)+
+  geom_line(size=0.5) +
+  geom_point( size=1, shape=21, fill="white")+
+  scale_x_date(labels = scales::date_format("%m-%Y"))+
+  theme(axis.text.x=element_text(angle = -90, hjust = 0), legend.position = "none")
+```
+
+```{r}
+ggpubr::ggarrange(CSTR_plot,CSTR_plot_inverse, ncol =1, nrow=2, labels=c("a", "b"))
+```
+
+
+
+
+#20. Generate the plot of CSIR
+
+```{r}
+CSIR_plot <- ggplot(data=world[483:nrow(world),], aes(
+  x=date,
+  y=CSIR,
+  group = location,
+  colour = location
+)
+)+
+  geom_line(size=0.5) +
+  geom_point( size=1, shape=21, fill="white")+
+  scale_x_date(labels = scales::date_format("%m-%Y"))+
+  theme(axis.text.x=element_text(angle = -90, hjust = 0), legend.position = "none")
+```
+
+
+
+```{r}
+CSIR_plot_inverse<- ggplot(data=world[483:nrow(world),], aes(
+  x=date,
+  y=1/CSIR,
+  group = location,
+  colour = location
+)
+)+
+  geom_line(size=0.5) +
+  geom_point( size=1, shape=21, fill="white")+
+  scale_x_date(labels = scales::date_format("%m-%Y"))+
+  theme(axis.text.x=element_text(angle = -90, hjust = 0), legend.position = "none")
+```
+
+```{r}
+ggpubr::ggarrange(CSIR_plot,CSIR_plot_inverse, ncol =1, nrow=2, labels=c("a", "b"))
+```
+
+
+#21. Generate the plot of LPR
+
+
+```{r}
+LPR_plot <- ggplot(data=world[483:nrow(world),], aes(
+  x=date,
+  y=LPR,
+  group = location,
+  colour = location
+)
+)+
+  geom_line(size=0.5) +
+  geom_point( size=1, shape=21, fill="white")+
+  geom_line( aes (x=date, y=GPR), size=0.5)+
+  scale_x_date(labels = scales::date_format("%m-%Y"))+
+  theme(axis.text.x=element_text(angle = -90, hjust = 0), legend.position = "none")
+```
+
+
+```{r}
+LPR_plot_inverse<- ggplot(data=world[483:nrow(world),], aes(
+  x=date,
+  y=1/LPR,
+  group = location,
+  colour = location
+)
+)+
+  geom_line(size=0.5) +
+  geom_line(data=world[483:nrow(world),], aes (x=date, y=GPR), size=1.4)+
+  geom_point( size=1, shape=21, fill="white")+
+  scale_x_date(labels = scales::date_format("%m-%Y"))+
+  theme(axis.text.x=element_text(angle = -90, hjust = 0), legend.position = "none")
+```
+
+
+```{r}
+ggpubr::ggarrange(LPR_plot,LPR_plot_inverse, ncol =1, nrow=2, labels=c("a", "b"))
+```
+
+
+#22. Generate the plot of WCSIR
+
+```{r}
+WCSIR_plot <- ggplot(data=world[483:nrow(world),], aes(
+  x=date,
+  y=WCSIR,
+  group = location,
+  colour = location
+)
+)+
+  geom_line(size=0.5) +
+  geom_point( size=1, shape=21, fill="white")+
+  scale_x_date(labels = scales::date_format("%m-%Y"))+
+  theme(axis.text.x=element_text(angle = -90, hjust = 0), legend.position = "none")
+```
+
+```{r}
+WCSIR_plot_inverse<- ggplot(data=world[483:nrow(world),], aes(
+  x=date,
+  y=1/WCSIR,
+  group = location,
+  colour = location
+)
+)+
+  geom_line(size=0.5) +
+  geom_point( size=1, shape=21, fill="white")+
+  scale_x_date(labels = scales::date_format("%m-%Y"))+
+  theme(axis.text.x=element_text(angle = -90, hjust = 0), legend.position = "none")
+```
+
+
+```{r}
+ggpubr::ggarrange(WCSIR_plot,WCSIR_plot_inverse, ncol =1, nrow=2, labels=c("a", "b"))
+```
+
+#23. Save the resulting data frame
+write.table(world, "world_modified_.csv", sep=";", dec=".", row.names=F)
+
+
